@@ -164,7 +164,8 @@ class Server {
                         }
                     }
 
-                    // ??
+                    // We look for the lowest value in noDups and set i equal to that,
+                    // which moves the sliding window.
                     for (int x = 0; x < Server.noDups.length; x++) {
                         if (Server.noDups[x] == 0) {
                             sendingInProcess = true;
@@ -175,7 +176,8 @@ class Server {
                         }
                     }
 
-                    // ??
+                    // If we're looking at the final window of the file, we make
+                    // sure that all of them are sent before exiting.
                     if (i == numPackets-5) {
                         int counter = 0;
                         for (int x = Server.noDups.length-5; x < Server.noDups.length; x++) {

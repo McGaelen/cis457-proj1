@@ -8,19 +8,10 @@ import java.lang.Thread;
 
 class Server {
     public static volatile int[] noDups; // keeps a record of packets already sent
-    static final int PACKET_SIZE = 1044; // 1024 + 20 byte header
-    static final int PAYLOAD_SIZE = 1024;
-
-    public static int packetHashCode(ByteBuffer packet) {
-        int hashcode = 0;
-        while (packet.hasRemaining()) {
-            hashcode += packet.get();
-        }
-        packet.flip();
-        return hashcode;
-    }
 
     public static void main(String args[]) {
+        final int PACKET_SIZE = 1044; // 1024 + 20 byte header
+        final int PAYLOAD_SIZE = 1024;
 
         if (args.length < 1) {
             System.out.println("Must supply a port number.");
@@ -54,25 +45,17 @@ class Server {
                 Thread ackThread = new Thread(new Runnable() {
                     @Override
                     public void run() {
-                        ByteBuffer ack = ByteBuffer.allocate(12);
+                        ByteBuffer ack = ByteBuffer.allocate(8);
                         long acknowledgedPackets = 0;
                         while (true) {
                             try {
                                 if (c.receive(ack) != null) {
                                     ack.flip();
-                                    int hashcode = ack.getInt(8);
-                                    ack.position(8);
-                                    ack.putInt(0);
-                                    ack.rewind();
-                                    System.out.println("Received Ack Hash = " + hashcode);
-
-                                    if (hashcode == Server.packetHashCode(ack)) {
-                                        long ackNum = ack.getLong();
-                                        System.out.println("Received acknowledgement: " + ackNum);
-                                        Server.noDups[(int)ackNum] = 1;  // keep a record that we sent this packet
-                                        acknowledgedPackets++;
-                                        ack.rewind();
-                                    }
+                                    long ackNum = ack.getLong();
+                                    System.out.println("Received acknowledgement: " + ackNum);
+                                    Server.noDups[(int)ackNum] = 1;  // keep a record that we sent this packet
+                                    acknowledgedPackets++;
+                                    ack.flip();
                                 }
                                 int numberOfOnes = 0;
                                 for (int x = 0; x < Server.noDups.length; x++) {
@@ -102,33 +85,34 @@ class Server {
                     }
 
                     // re-populate window shifted forward by 1024 bytes
-                    file.getChannel().read(window.get(0), ((i)*1024));
-                    file.getChannel().read(window.get(1), ((i+1)*1024));
-                    file.getChannel().read(window.get(2), ((i+2)*1024));
-                    file.getChannel().read(window.get(3), ((i+3)*1024));
-                    file.getChannel().read(window.get(4), ((i+4)*1024));
+		    file.getChannel().read(window.get(0), ((i)*1024));
+		    file.getChannel().read(window.get(1), ((i+1)*1024));
+		    file.getChannel().read(window.get(2), ((i+2)*1024));
+		    file.getChannel().read(window.get(3), ((i+3)*1024));
+		    file.getChannel().read(window.get(4), ((i+4)*1024));
 
                     // loop through window to send each individual buffer
-                    for (long j = 0; j < 5; j++) {
+		    for (long j = 0; j < 5; j++) {
                         // only send the packet if we haven't sent it in the past
                         if(Server.noDups[(int)(i+j)] == 0) {
-                            ByteBuffer packet = ByteBuffer.allocate(PACKET_SIZE);
+                	    ByteBuffer packet = ByteBuffer.allocate(PACKET_SIZE);
 
-                            // add everything to the packet in order
+                    	    // add everything to the packet in order
                             window.get((int)j).flip();
                             packet.putInt(0);
-                            packet.putLong(i+j);           // first half of header
-                            packet.putLong(numPackets);    // 2nd half of header
-                            packet.put(window.get((int)j));  // data
-                            packet.flip();
+                    	    packet.putLong(i+j);           // first half of header
+                    	    packet.putLong(numPackets);    // 2nd half of header
+                    	    packet.put(window.get((int)j));  // data
+                    	    packet.flip();
+                    	    
+                    	    int hashcode = Arrays.hashCode(packet.array());
+                    	    packet.putInt(hashcode);
+                    	    packet.flip();
 
-                            packet.putInt(Server.packetHashCode(packet));
-                            packet.rewind();
-
-                            c.send(packet, clientaddr);
+                   	    c.send(packet, clientaddr);
                             System.out.println("Sending packet " + (i+j));
-                        }
-                    }
+			}
+		    }
 
                     sendingInProcess = false;
 

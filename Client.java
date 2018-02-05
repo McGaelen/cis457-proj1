@@ -5,9 +5,12 @@ import java.nio.channels.*;
 import java.util.*;
 
 class Client {
-    static final int PACKET_SIZE = 1044; // 1024 + 20 byte header
+    // Packet layout:
+    // 4 byte hashcode | 8 byte packet number | 8 byte total number of packets | 1024 bytes packet data
+    static final int PACKET_SIZE = 1044;
     static final int PAYLOAD_SIZE = 1024;
 
+    // Generates a hashcode based on the content of the given ByteBuffer.
     public static int packetHashCode(ByteBuffer packet) {
         int hashcode = 0;
         while (packet.hasRemaining()) {
@@ -31,9 +34,9 @@ class Client {
         try {
             DatagramChannel dg = DatagramChannel.open();
             ByteBuffer packet = ByteBuffer.allocate(PACKET_SIZE);
-            long packetNum;
-            long numPackets = 0;
-            int hashcode;
+            long packetNum; // A number to uniquely identify a packet in a sequence.
+            long numPackets = 0; // The total number of packets in this transmission.
+            int hashcode; // Used to verify the integrity of the packet received.
 
             // get filename to transfer and send it to server
             String filename = cons.readLine("Enter a filename: ");
@@ -43,9 +46,11 @@ class Client {
             // create output file
             String fileExtension = filename.substring(filename.indexOf("."));
             FileOutputStream outFile = new FileOutputStream("outFile" + fileExtension, false);
-            
+
+            // Keeps track of which packets sent from the server have already been written.
             ArrayList<Integer> noDups = new ArrayList();
 
+            // ByteBuffer for the acknowledgement packet.
             ByteBuffer ack = ByteBuffer.allocate(12);
 
             // recieve rest of packets in loop
@@ -53,19 +58,25 @@ class Client {
             while (sendingInProcess) {
                 packet = ByteBuffer.allocate(PACKET_SIZE);
 
-                // recieve next packet and get it's number
+                // recieve packet, then get the hash code from it
                 dg.receive(packet);
                 packet.flip();
                 hashcode = packet.getInt();
                 packet.rewind();
+                // Zero out the section of the packet where the hash code was,
+                // so we can accurately compute the hash for it.
                 packet.putInt(0);
                 packet.rewind();
 
-                // If the packet is not corrupted
+                // Check and see if the supplied hashcode matches our computed hashcode.
+                // Only continue if they match.
                 if (hashcode == Client.packetHashCode(packet)) {
+
+                    // get the number identifying this packet.
                     packetNum = packet.getLong(4);
 
-                    // if we're on the first iteration of the loop
+                    // if we're on the first iteration of the loop, we need the total
+                    // number of packets in this transmission
                     if (numPackets == 0) {
                         numPackets = packet.getLong(12);
                         System.out.println("Total number of packets: " + numPackets);
@@ -74,24 +85,33 @@ class Client {
                         }
                     }
 
+                    // Now send an acknowledgement that we received the packet.
+                    // The acknowledgement contains the packet number identifying
+                    // the packet that we received.
                     ack.rewind();
                     ack.putLong(packetNum);
-                    ack.putInt(0);
+                    ack.putInt(0); // Put zeros at the end of the ack packet for computing hashcode
                     ack.rewind();
+
+                    // Compute a hash code for this acknowledgement packet,
+                    // and add it to the end.
                     int ackHashcode = Client.packetHashCode(ack);
                     ack.position(8);
                     ack.putInt(ackHashcode);
                     ack.rewind();
                     dg.send(ack, new InetSocketAddress(ipAddr, portNum));
 
+                    // Then write the received packet's data to disk if we haven't
+                    // already written this packet in the past.
                     if (noDups.get((int)packetNum) == 0) {
-                        // write next payload
                         System.out.println("Writing payload " + (packetNum+1) + " of " + numPackets);
                         packet.position(20);
                         outFile.getChannel().write(packet, (1024 * packetNum));
-                        noDups.set((int)packetNum, 1);
+                        noDups.set((int)packetNum, 1); // keeps a record that we wrote this packet to disk.
                     }
 
+                    // If there are no more zeroes in noDups, it means we have
+                    // successfully written every packet. Then we jump out of the loop.
                     if (noDups.indexOf(0) == -1) {
                         sendingInProcess = false;
                     }
@@ -102,7 +122,7 @@ class Client {
             outFile.close();
             dg.close();
         } catch (IOException e) {
-            System.out.println("error");
+            System.out.println(e.getMessage());
         }
     }
 }
